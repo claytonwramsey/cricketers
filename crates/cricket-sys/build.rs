@@ -173,7 +173,10 @@ fn main() {
             // links, so it must be requested explicitly or its headers never get
             // installed and the compiler silently falls back to (a possibly ancient)
             // system Boost.
-            ("BOOST_INCLUDE_LIBRARIES", "filesystem;serialization;math"),
+            // asio is a header-only Boost library that pinocchio's serialization support
+            // includes directly (boost/asio/streambuf.hpp) with no trace of it in any
+            // find_package/CMakeLists.txt, so it's easy to miss unless something forces it.
+            ("BOOST_INCLUDE_LIBRARIES", "filesystem;serialization;math;asio"),
         ],
     );
     build_dep(

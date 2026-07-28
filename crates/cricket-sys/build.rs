@@ -1,7 +1,9 @@
 use cmake::Config;
-use std::env;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 fn vendor_dir(manifest_dir: &Path, name: &str) -> PathBuf {
     manifest_dir.join("vendor").join(name)

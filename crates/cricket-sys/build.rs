@@ -30,7 +30,10 @@ fn build_dep(
         .define("CMAKE_INSTALL_PREFIX", prefix)
         .define("CMAKE_PREFIX_PATH", prefix)
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
-        .always_configure(false);
+        .always_configure(false)
+        // the cmake crate always passes CMAKE_ASM_COMPILER/CMAKE_ASM_FLAGS even though none
+        // of our vendored dependencies use ASM as a project language.
+        .configure_arg("--no-warn-unused-cli");
     for (k, v) in defines {
         cfg.define(k, v);
     }
@@ -248,6 +251,7 @@ fn main() {
         .define("CPM_cxxopts_SOURCE", &cxxopts_src)
         .define("CPM_CppADCodeGen_SOURCE", &cppadcodegen_src)
         .always_configure(false)
+        .configure_arg("--no-warn-unused-cli")
         .env("PKG_CONFIG_PATH", &pkg_config_path)
         .build();
 

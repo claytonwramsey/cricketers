@@ -166,7 +166,8 @@ fn main() {
         &prefix,
         "boost",
         &[
-            ("BUILD_SHARED_LIBS", "OFF"),
+            // must make a shared lib to satisfy dependents.
+            ("BUILD_SHARED_LIBS", "ON"),
             ("BUILD_TESTING", "OFF"),
             // math is a header-only Boost library that Pinocchio depends on but never
             // links, so it must be requested explicitly or its headers never get
@@ -186,10 +187,6 @@ fn main() {
             ("BUILD_PYTHON_INTERFACE", "OFF"),
             ("COAL_HAS_QHULL", "OFF"),
             ("INSTALL_DOCUMENTATION", "OFF"),
-            // Boost's own CONFIG-mode package only generates "-static"-suffixed configs
-            // for our BUILD_SHARED_LIBS=OFF build; without this, Boost_USE_STATIC_LIBS
-            // defaults to shared on Linux and find_package(Boost) fails to match them.
-            ("Boost_USE_STATIC_LIBS", "ON"),
         ],
     );
     build_dep(
@@ -211,7 +208,6 @@ fn main() {
             ("BUILD_WITH_OPENMP_SUPPORT", "OFF"),
             ("BUILD_WITH_EXTRA_SUPPORT", "OFF"),
             ("INSTALL_DOCUMENTATION", "OFF"),
-            ("Boost_USE_STATIC_LIBS", "ON"),
         ],
     );
 
@@ -245,7 +241,6 @@ fn main() {
         .define("CRICKET_BUILD_PYTHON", "OFF")
         .define("CPM_cxxopts_SOURCE", &cxxopts_src)
         .define("CPM_CppADCodeGen_SOURCE", &cppadcodegen_src)
-        .define("Boost_USE_STATIC_LIBS", "ON")
         .always_configure(false)
         .env("PKG_CONFIG_PATH", &pkg_config_path)
         .build();
@@ -257,11 +252,11 @@ fn main() {
     // Static libs.
     println!("cargo:rustc-link-lib=static=cricket");
     println!("cargo:rustc-link-lib=static=fmt");
-    println!("cargo:rustc-link-lib=static=boost_filesystem");
-    println!("cargo:rustc-link-lib=static=boost_serialization");
-    // Shared libs (urdfdom, coal, cppad, and pinocchio all hardcode SHARED regardless of
-    // BUILD_SHARED_LIBS); their own transitive shared-lib deps (console_bridge, tinyxml2,
-    // assimp) are baked into their DT_NEEDED entries and don't need to be listed here.
+    // Shared libs.
+    // Libraries depending on Boost hardcode a shared lib requirement, so we must require boost as a
+    // shared lib.
+    println!("cargo:rustc-link-lib=dylib=boost_filesystem");
+    println!("cargo:rustc-link-lib=dylib=boost_serialization");
     println!("cargo:rustc-link-lib=dylib=pinocchio_default");
     println!("cargo:rustc-link-lib=dylib=pinocchio_parsers");
     println!("cargo:rustc-link-lib=dylib=pinocchio_collision");

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "3"
+members = ["crates/cricket", "crates/cricket-derive", "crates/cricket-sys"]
+
+[profile.bench]
+debug = false
+lto = false
+
+[profile.release]
+debug = false
+
+[profile.dev]
+debug = false

@@ -1,0 +1,10 @@
+[package]
+name = "cricket-sys"
+version = "0.1.0"
+edition = "2024"
+links = "cricket"
+
+[dependencies]
+
+[build-dependencies]
+cmake = "0.1"

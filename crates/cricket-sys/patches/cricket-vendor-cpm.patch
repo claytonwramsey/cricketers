@@ -1,0 +1,21 @@
+diff --git CMakeLists.txt CMakeLists.txt
+index d809951..4e1231f 100644
+--- CMakeLists.txt
++++ CMakeLists.txt
+@@ -21,12 +21,10 @@ if(NOT DEFINED ENV{CPM_SOURCE_CACHE})
+   set(ENV{CPM_SOURCE_CACHE} ${CMAKE_CURRENT_SOURCE_DIR}/.cpm-cache)
+ endif()
+ 
+-file(
+-  DOWNLOAD
+-  https://github.com/cpm-cmake/CPM.cmake/releases/download/v0.42.0/CPM.cmake
+-  ${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake
+-)
+-include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
++if(NOT DEFINED CRICKET_SYS_CPM_PATH)
++  message(FATAL_ERROR "CRICKET_SYS_CPM_PATH must point at a vendored CPM.cmake copy")
++endif()
++include(${CRICKET_SYS_CPM_PATH})
+ 
+ # Find required packages
+ find_package(PkgConfig REQUIRED)

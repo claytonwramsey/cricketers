@@ -1,0 +1,51 @@
+[submodule "crates/cricket-sys/vendor/eigen"]
+	path = crates/cricket-sys/vendor/eigen
+	url = https://gitlab.com/libeigen/eigen.git
+[submodule "crates/cricket-sys/vendor/tinyxml2"]
+	path = crates/cricket-sys/vendor/tinyxml2
+	url = https://github.com/leethomason/tinyxml2.git
+[submodule "crates/cricket-sys/vendor/console_bridge"]
+	path = crates/cricket-sys/vendor/console_bridge
+	url = https://github.com/ros/console_bridge.git
+[submodule "crates/cricket-sys/vendor/urdfdom_headers"]
+	path = crates/cricket-sys/vendor/urdfdom_headers
+	url = https://github.com/ros/urdfdom_headers.git
+[submodule "crates/cricket-sys/vendor/urdfdom"]
+	path = crates/cricket-sys/vendor/urdfdom
+	url = https://github.com/ros/urdfdom.git
+[submodule "crates/cricket-sys/vendor/fmt"]
+	path = crates/cricket-sys/vendor/fmt
+	url = https://github.com/fmtlib/fmt.git
+[submodule "crates/cricket-sys/vendor/nlohmann_json"]
+	path = crates/cricket-sys/vendor/nlohmann_json
+	url = https://github.com/nlohmann/json.git
+[submodule "crates/cricket-sys/vendor/cxxopts"]
+	path = crates/cricket-sys/vendor/cxxopts
+	url = https://github.com/jarro2783/cxxopts.git
+[submodule "crates/cricket-sys/vendor/cppad"]
+	path = crates/cricket-sys/vendor/cppad
+	url = https://github.com/coin-or/CppAD.git
+[submodule "crates/cricket-sys/vendor/cppadcodegen"]
+	path = crates/cricket-sys/vendor/cppadcodegen
+	url = https://github.com/joaoleal/CppADCodeGen.git
+[submodule "crates/cricket-sys/vendor/cgal"]
+	path = crates/cricket-sys/vendor/cgal
+	url = https://github.com/CGAL/cgal.git
+[submodule "crates/cricket-sys/vendor/assimp"]
+	path = crates/cricket-sys/vendor/assimp
+	url = https://github.com/assimp/assimp.git
+[submodule "crates/cricket-sys/vendor/coal"]
+	path = crates/cricket-sys/vendor/coal
+	url = https://github.com/coal-library/coal.git
+[submodule "crates/cricket-sys/vendor/pinocchio"]
+	path = crates/cricket-sys/vendor/pinocchio
+	url = https://github.com/stack-of-tasks/pinocchio.git
+[submodule "crates/cricket-sys/vendor/boost"]
+	path = crates/cricket-sys/vendor/boost
+	url = https://github.com/boostorg/boost.git
+[submodule "crates/cricket-sys/vendor/cricket"]
+	path = crates/cricket-sys/vendor/cricket
+	url = https://github.com/CoMMALab/cricket.git
+[submodule "crates/cricket-sys/vendor/cpm-cmake"]
+	path = crates/cricket-sys/vendor/cpm-cmake
+	url = https://github.com/cpm-cmake/CPM.cmake.git

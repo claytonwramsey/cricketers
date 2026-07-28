@@ -169,14 +169,17 @@ fn main() {
             // must make a shared lib to satisfy dependents.
             ("BUILD_SHARED_LIBS", "ON"),
             ("BUILD_TESTING", "OFF"),
-            // math is a header-only Boost library that Pinocchio depends on but never
-            // links, so it must be requested explicitly or its headers never get
-            // installed and the compiler silently falls back to (a possibly ancient)
-            // system Boost.
-            // asio is a header-only Boost library that pinocchio's serialization support
-            // includes directly (boost/asio/streambuf.hpp) with no trace of it in any
-            // find_package/CMakeLists.txt, so it's easy to miss unless something forces it.
-            ("BOOST_INCLUDE_LIBRARIES", "filesystem;serialization;math;asio"),
+            // filesystem and serialization are the only libraries pinocchio/coal actually
+            // link against; everything else here is a header-only library one of them
+            // #includes directly with no trace of it in any find_package/CMakeLists.txt,
+            // discovered by grepping pinocchio/coal/cricket for every boost/<x> include.
+            (
+                "BOOST_INCLUDE_LIBRARIES",
+                "filesystem;serialization;algorithm;asio;bind;config;container;core;detail;\
+                 foreach;function;fusion;graph;integer;iostreams;iterator;logic;math;mpl;\
+                 multiprecision;optional;preprocessor;property_tree;smart_ptr;type_traits;\
+                 variant",
+            ),
         ],
     );
     build_dep(

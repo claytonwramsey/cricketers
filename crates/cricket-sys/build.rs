@@ -186,6 +186,10 @@ fn main() {
             ("BUILD_PYTHON_INTERFACE", "OFF"),
             ("COAL_HAS_QHULL", "OFF"),
             ("INSTALL_DOCUMENTATION", "OFF"),
+            // Boost's own CONFIG-mode package only generates "-static"-suffixed configs
+            // for our BUILD_SHARED_LIBS=OFF build; without this, Boost_USE_STATIC_LIBS
+            // defaults to shared on Linux and find_package(Boost) fails to match them.
+            ("Boost_USE_STATIC_LIBS", "ON"),
         ],
     );
     build_dep(
@@ -207,6 +211,7 @@ fn main() {
             ("BUILD_WITH_OPENMP_SUPPORT", "OFF"),
             ("BUILD_WITH_EXTRA_SUPPORT", "OFF"),
             ("INSTALL_DOCUMENTATION", "OFF"),
+            ("Boost_USE_STATIC_LIBS", "ON"),
         ],
     );
 
@@ -240,6 +245,7 @@ fn main() {
         .define("CRICKET_BUILD_PYTHON", "OFF")
         .define("CPM_cxxopts_SOURCE", &cxxopts_src)
         .define("CPM_CppADCodeGen_SOURCE", &cppadcodegen_src)
+        .define("Boost_USE_STATIC_LIBS", "ON")
         .always_configure(false)
         .env("PKG_CONFIG_PATH", &pkg_config_path)
         .build();

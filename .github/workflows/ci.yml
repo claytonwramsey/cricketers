@@ -19,8 +19,32 @@ jobs:
         with:
           fetch-depth: 1
 
+      # filter submodules to just the ones that we will use
       - name: Checkout submodules
-        run: git submodule update --init --recursive --depth 1 --jobs 8
+        run: |
+          git submodule update --init --depth 1 --jobs 8
+          # Only the Boost libraries cricket-sys's vendored dependency tree actually touches --
+          # regenerate by running a full local build and listing
+          # target/*/build/cricket-sys-*/out/build/boost/build/libs/*/.
+          git -C crates/cricket-sys/vendor/boost submodule update --init --depth 1 --jobs 8 -- \
+            tools/cmake \
+            libs/algorithm libs/align libs/any libs/array libs/asio libs/assert libs/atomic \
+            libs/bimap libs/bind libs/chrono libs/concept_check libs/config libs/container \
+            libs/container_hash libs/context libs/conversion libs/core libs/coroutine \
+            libs/date_time libs/describe libs/detail libs/dynamic_bitset libs/endian \
+            libs/exception libs/filesystem libs/foreach libs/function libs/function_types \
+            libs/functional libs/fusion libs/graph libs/headers libs/integer libs/intrusive \
+            libs/io libs/iostreams libs/iterator libs/lambda libs/lexical_cast libs/logic \
+            libs/math libs/move libs/mp11 libs/mpl libs/multi_index libs/multiprecision \
+            libs/numeric/conversion libs/optional libs/parameter libs/phoenix libs/pool \
+            libs/predef libs/preprocessor libs/property_map libs/property_tree libs/proto \
+            libs/random libs/range libs/ratio libs/regex libs/scope libs/serialization \
+            libs/smart_ptr libs/spirit libs/static_assert libs/system libs/thread \
+            libs/throw_exception libs/tokenizer libs/tti libs/tuple libs/type_index \
+            libs/type_traits libs/typeof libs/unordered libs/utility libs/variant \
+            libs/variant2 libs/winapi libs/xpressive
+          git -C crates/cricket-sys/vendor/pinocchio submodule update --init --depth 1 cmake
+          git -C crates/cricket-sys/vendor/coal submodule update --init --depth 1 cmake
 
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential pkg-config
@@ -33,6 +57,9 @@ jobs:
         with:
           cache-directories: |
             target/*/build/cricket-sys-*/out
+          # Cache keys otherwise only depend on Cargo.lock + Rust env, neither of which
+          # changes when the vendored C++ build itself does.
+          key: ${{ hashFiles('crates/cricket-sys/build.rs', 'crates/cricket-sys/patches/**', '.gitmodules') }}
 
       - name: Build
         run: cargo build --workspace --verbose

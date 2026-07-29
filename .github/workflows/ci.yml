@@ -54,12 +54,25 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+
+      # A separate, dedicated cache for just cricket-sys's vendored C++ build output.
+      - name: Cache cricket-sys vendored build
+        uses: actions/cache@v4
         with:
-          cache-directories: |
-            target/*/build/cricket-sys-*/out
-          # Cache keys otherwise only depend on Cargo.lock + Rust env, neither of which
-          # changes when the vendored C++ build itself does.
-          key: ${{ hashFiles('crates/cricket-sys/build.rs', 'crates/cricket-sys/patches/**', '.gitmodules') }}
+          path: target/*/build/cricket-sys-*/out
+          key: cricket-sys-vendor-${{ hashFiles('crates/cricket-sys/build.rs', 'crates/cricket-sys/patches/**', '.gitmodules') }}
+
+      # Cache restore preserves the original mtimes from whenever the cache was saved, but
+      # the checkout above always stamps vendored sources with the current time -- so without
+      # this, CMake/Make sees "sources newer than cached objects" and recompiles everything on
+      # every run regardless of what's cached.
+      - name: Fix cached build timestamps
+        run: |
+          shopt -s nullglob
+          dirs=(target/*/build/cricket-sys-*/out)
+          if [ ${#dirs[@]} -gt 0 ]; then
+            find "${dirs[@]}" -exec touch {} +
+          fi
 
       - name: Build
         run: cargo build --workspace --verbose

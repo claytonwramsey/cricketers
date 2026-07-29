@@ -8,3 +8,4 @@ links = "cricket"
 
 [build-dependencies]
 cmake = "0.1"
+cc = "1"

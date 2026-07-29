@@ -33,6 +33,7 @@ version = "0.1.0"
 name = "cricket-sys"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "cmake",
 ]
 

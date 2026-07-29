@@ -6,121 +6,6 @@ use std::{
     process::Command,
 };
 
-fn vendor_dir(manifest_dir: &Path, name: &str) -> PathBuf {
-    manifest_dir.join("vendor").join(name)
-}
-
-/// Hashes build.rs, the patches directory, and (via `git submodule status --recursive`) the
-/// exact pinned commit of every vendored dependency, including nested submodules like
-/// boost's own libs/* or pinocchio/coal's jrl-cmakemodules. `.gitmodules` only records each
-/// submodule's URL, not its pinned commit, so this is the only way to detect "someone bumped
-/// a vendored dependency" at all.
-fn build_fingerprint(manifest_dir: &Path) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    std::fs::read(manifest_dir.join("build.rs"))
-        .unwrap()
-        .hash(&mut hasher);
-
-    let mut patch_files: Vec<_> = std::fs::read_dir(manifest_dir.join("patches"))
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .collect();
-    patch_files.sort();
-    for path in patch_files {
-        std::fs::read(path).unwrap().hash(&mut hasher);
-    }
-
-    let submodule_status = Command::new("git")
-        .args(["submodule", "status", "--recursive"])
-        .current_dir(manifest_dir)
-        .output()
-        .expect("failed to run git");
-    assert!(submodule_status.status.success(), "git submodule status failed");
-    submodule_status.stdout.hash(&mut hasher);
-
-    hasher.finish()
-}
-
-fn emit_link_directives(prefix: &Path) {
-    let lib_dir = prefix.join("lib");
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
-
-    // Static libs.
-    println!("cargo:rustc-link-lib=static=cricket");
-    println!("cargo:rustc-link-lib=static=fmt");
-    // Shared libs.
-    // Libraries depending on Boost hardcode a shared lib requirement, so we must require boost as a
-    // shared lib.
-    println!("cargo:rustc-link-lib=dylib=boost_filesystem");
-    println!("cargo:rustc-link-lib=dylib=boost_serialization");
-    println!("cargo:rustc-link-lib=dylib=pinocchio_default");
-    println!("cargo:rustc-link-lib=dylib=pinocchio_parsers");
-    println!("cargo:rustc-link-lib=dylib=pinocchio_collision");
-    println!("cargo:rustc-link-lib=dylib=coal");
-    println!("cargo:rustc-link-lib=dylib=urdfdom_model");
-    println!("cargo:rustc-link-lib=dylib=urdfdom_world");
-    println!("cargo:rustc-link-lib=dylib=urdfdom_sensor");
-    println!("cargo:rustc-link-lib=dylib=cppad_lib");
-
-    println!("cargo:root={}", prefix.display());
-}
-
-/// Configures, builds, and installs a vendored CMake dependency into the shared `prefix`,
-/// with its own build tree under `build_root/<name>` so concurrent dependencies don't collide.
-fn build_dep(
-    manifest_dir: &Path,
-    build_root: &Path,
-    prefix: &Path,
-    name: &str,
-    defines: &[(&str, &str)],
-) {
-    let src = vendor_dir(manifest_dir, name);
-    assert!(
-        src.join("CMakeLists.txt").exists(),
-        "{} has no CMakeLists.txt -- run `git submodule update --init --recursive`",
-        src.display()
-    );
-
-    let mut cfg = Config::new(&src);
-    cfg.out_dir(build_root.join(name))
-        .define("CMAKE_INSTALL_PREFIX", prefix)
-        .define("CMAKE_PREFIX_PATH", prefix)
-        .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
-        .always_configure(false)
-        // the cmake crate always passes CMAKE_ASM_COMPILER/CMAKE_ASM_FLAGS even though none
-        // of our vendored dependencies use ASM as a project language.
-        .configure_arg("--no-warn-unused-cli");
-    for (k, v) in defines {
-        cfg.define(k, v);
-    }
-    cfg.build();
-}
-
-/// cricket's CMakeLists.txt unconditionally downloads CPM.cmake from GitHub at configure
-/// time. Since we vendor CPM.cmake ourselves (as a submodule), this patch swaps that
-/// download for an `include()` of our copy, gated by a CRICKET_SYS_CPM_PATH define.
-/// Applied idempotently, mirroring how cricket's own CMakeLists.txt patches CppADCodeGen.
-fn apply_cricket_patch(cricket_src: &Path, patch: &Path) {
-    let already_applied = Command::new("git")
-        .args(["apply", "-p0", "--reverse", "--check"])
-        .arg(patch)
-        .current_dir(cricket_src)
-        .status()
-        .expect("failed to run git")
-        .success();
-
-    if !already_applied {
-        let status = Command::new("git")
-            .args(["apply", "-p0"])
-            .arg(patch)
-            .current_dir(cricket_src)
-            .status()
-            .expect("failed to run git");
-        assert!(status.success(), "failed to apply {}", patch.display());
-    }
-}
-
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -129,18 +14,38 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=patches");
+    println!("cargo:rerun-if-changed=csrc");
 
     let stamp_path = prefix.join(".build-stamp");
     let fingerprint = build_fingerprint(&manifest_dir).to_string();
-    if std::fs::read_to_string(&stamp_path).ok().as_deref() == Some(fingerprint.as_str())
-        && prefix.join("lib/libcricket.a").exists()
+    if std::fs::read_to_string(&stamp_path)
+        .ok()
+        .is_none_or(|cached_fingerprint| cached_fingerprint != fingerprint)
+        || !prefix.join("lib/libcricket.a").exists()
     {
-        emit_link_directives(&prefix);
-        return;
+        build_cricket(
+            &manifest_dir,
+            &build_root,
+            &prefix,
+            &stamp_path,
+            &fingerprint,
+        );
     }
 
+    compile_shim(&manifest_dir, &prefix);
+    emit_link_directives(&prefix);
+}
+
+/// Build the cricket library and then update the stamp with the new fingerprint.
+fn build_cricket(
+    manifest_dir: &Path,
+    build_root: &Path,
+    prefix: &Path,
+    stamp_path: &Path,
+    fingerprint: &str,
+) {
     build_dep(
-        &manifest_dir,
+        manifest_dir,
         &build_root,
         &prefix,
         "tinyxml2",
@@ -322,5 +227,145 @@ fn main() {
         .build();
 
     std::fs::write(&stamp_path, &fingerprint).unwrap();
-    emit_link_directives(&prefix);
+}
+
+fn vendor_dir(manifest_dir: &Path, name: &str) -> PathBuf {
+    manifest_dir.join("vendor").join(name)
+}
+
+/// Hashes build.rs, the patches directory, and (via `git submodule status --recursive`) the
+/// exact pinned commit of every vendored dependency, including nested submodules like
+/// boost's own libs/* or pinocchio/coal's jrl-cmakemodules. `.gitmodules` only records each
+/// submodule's URL, not its pinned commit, so this is the only way to detect "someone bumped
+/// a vendored dependency" at all.
+fn build_fingerprint(manifest_dir: &Path) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    std::fs::read(manifest_dir.join("build.rs"))
+        .unwrap()
+        .hash(&mut hasher);
+
+    let mut patch_files: Vec<_> = std::fs::read_dir(manifest_dir.join("patches"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    patch_files.sort();
+    for path in patch_files {
+        std::fs::read(path).unwrap().hash(&mut hasher);
+    }
+
+    let submodule_status = Command::new("git")
+        .args(["submodule", "status", "--recursive"])
+        .current_dir(manifest_dir)
+        .output()
+        .expect("failed to run git");
+    assert!(
+        submodule_status.status.success(),
+        "git submodule status failed"
+    );
+    submodule_status.stdout.hash(&mut hasher);
+
+    hasher.finish()
+}
+
+/// Compiles the hand-written C shim (csrc/shim.cc) around cricket's C++ API. Must run before
+/// `emit_link_directives`: `cc::Build::compile` emits its own `cargo:rustc-link-lib` for the
+/// shim archive immediately, and it has to appear before `-lcricket` on the link line since the
+/// shim references cricket's symbols, not the other way around.
+fn compile_shim(manifest_dir: &Path, prefix: &Path) {
+    let include = prefix.join("include");
+    cc::Build::new()
+        .cpp(true)
+        .std("c++17")
+        .file(manifest_dir.join("csrc/shim.cc"))
+        .include(&include)
+        .include(include.join("eigen3"))
+        .include(include.join("pinocchio/deprecated"))
+        .include(include.join("urdfdom"))
+        .include(include.join("urdfdom_headers"))
+        .compile("cricket_shim");
+}
+
+fn emit_link_directives(prefix: &Path) {
+    let lib_dir = prefix.join("lib");
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+    // rustc defaults to lld on this toolchain, which rejects the .debug_gdb_scripts section
+    // GCC emits into our vendored static libs in debug builds ("string is not null terminated")
+    // -- ld.bfd and gold both accept it fine, and a later -fuse-ld= wins over the earlier
+    // toolchain-default one already on the link line.
+    println!("cargo:rustc-link-arg=-fuse-ld=bfd");
+
+    // Static libs.
+    println!("cargo:rustc-link-lib=static=cricket");
+    println!("cargo:rustc-link-lib=static=fmt");
+    // Shared libs.
+    // Libraries depending on Boost hardcode a shared lib requirement, so we must require boost as a
+    // shared lib.
+    println!("cargo:rustc-link-lib=dylib=boost_filesystem");
+    println!("cargo:rustc-link-lib=dylib=boost_serialization");
+    println!("cargo:rustc-link-lib=dylib=pinocchio_default");
+    println!("cargo:rustc-link-lib=dylib=pinocchio_parsers");
+    println!("cargo:rustc-link-lib=dylib=pinocchio_collision");
+    println!("cargo:rustc-link-lib=dylib=coal");
+    println!("cargo:rustc-link-lib=dylib=urdfdom_model");
+    println!("cargo:rustc-link-lib=dylib=urdfdom_world");
+    println!("cargo:rustc-link-lib=dylib=urdfdom_sensor");
+    println!("cargo:rustc-link-lib=dylib=cppad_lib");
+
+    println!("cargo:root={}", prefix.display());
+}
+
+/// Configures, builds, and installs a vendored CMake dependency into the shared `prefix`,
+/// with its own build tree under `build_root/<name>` so concurrent dependencies don't collide.
+fn build_dep(
+    manifest_dir: &Path,
+    build_root: &Path,
+    prefix: &Path,
+    name: &str,
+    defines: &[(&str, &str)],
+) {
+    let src = vendor_dir(manifest_dir, name);
+    assert!(
+        src.join("CMakeLists.txt").exists(),
+        "{} has no CMakeLists.txt -- run `git submodule update --init --recursive`",
+        src.display()
+    );
+
+    let mut cfg = Config::new(&src);
+    cfg.out_dir(build_root.join(name))
+        .define("CMAKE_INSTALL_PREFIX", prefix)
+        .define("CMAKE_PREFIX_PATH", prefix)
+        .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
+        .always_configure(false)
+        // the cmake crate always passes CMAKE_ASM_COMPILER/CMAKE_ASM_FLAGS even though none
+        // of our vendored dependencies use ASM as a project language.
+        .configure_arg("--no-warn-unused-cli");
+    for (k, v) in defines {
+        cfg.define(k, v);
+    }
+    cfg.build();
+}
+
+/// cricket's CMakeLists.txt unconditionally downloads CPM.cmake from GitHub at configure
+/// time. Since we vendor CPM.cmake ourselves (as a submodule), this patch swaps that
+/// download for an `include()` of our copy, gated by a CRICKET_SYS_CPM_PATH define.
+/// Applied idempotently, mirroring how cricket's own CMakeLists.txt patches CppADCodeGen.
+fn apply_cricket_patch(cricket_src: &Path, patch: &Path) {
+    let already_applied = Command::new("git")
+        .args(["apply", "-p0", "--reverse", "--check"])
+        .arg(patch)
+        .current_dir(cricket_src)
+        .status()
+        .expect("failed to run git")
+        .success();
+
+    if !already_applied {
+        let status = Command::new("git")
+            .args(["apply", "-p0"])
+            .arg(patch)
+            .current_dir(cricket_src)
+            .status()
+            .expect("failed to run git");
+        assert!(status.success(), "failed to apply {}", patch.display());
+    }
 }

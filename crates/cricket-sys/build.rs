@@ -1,12 +1,69 @@
 use cmake::Config;
 use std::{
     env,
+    hash::{DefaultHasher, Hash, Hasher},
     path::{Path, PathBuf},
     process::Command,
 };
 
 fn vendor_dir(manifest_dir: &Path, name: &str) -> PathBuf {
     manifest_dir.join("vendor").join(name)
+}
+
+/// Hashes build.rs, the patches directory, and (via `git submodule status --recursive`) the
+/// exact pinned commit of every vendored dependency, including nested submodules like
+/// boost's own libs/* or pinocchio/coal's jrl-cmakemodules. `.gitmodules` only records each
+/// submodule's URL, not its pinned commit, so this is the only way to detect "someone bumped
+/// a vendored dependency" at all.
+fn build_fingerprint(manifest_dir: &Path) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    std::fs::read(manifest_dir.join("build.rs"))
+        .unwrap()
+        .hash(&mut hasher);
+
+    let mut patch_files: Vec<_> = std::fs::read_dir(manifest_dir.join("patches"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    patch_files.sort();
+    for path in patch_files {
+        std::fs::read(path).unwrap().hash(&mut hasher);
+    }
+
+    let submodule_status = Command::new("git")
+        .args(["submodule", "status", "--recursive"])
+        .current_dir(manifest_dir)
+        .output()
+        .expect("failed to run git");
+    assert!(submodule_status.status.success(), "git submodule status failed");
+    submodule_status.stdout.hash(&mut hasher);
+
+    hasher.finish()
+}
+
+fn emit_link_directives(prefix: &Path) {
+    let lib_dir = prefix.join("lib");
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+
+    // Static libs.
+    println!("cargo:rustc-link-lib=static=cricket");
+    println!("cargo:rustc-link-lib=static=fmt");
+    // Shared libs.
+    // Libraries depending on Boost hardcode a shared lib requirement, so we must require boost as a
+    // shared lib.
+    println!("cargo:rustc-link-lib=dylib=boost_filesystem");
+    println!("cargo:rustc-link-lib=dylib=boost_serialization");
+    println!("cargo:rustc-link-lib=dylib=pinocchio_default");
+    println!("cargo:rustc-link-lib=dylib=pinocchio_parsers");
+    println!("cargo:rustc-link-lib=dylib=pinocchio_collision");
+    println!("cargo:rustc-link-lib=dylib=coal");
+    println!("cargo:rustc-link-lib=dylib=urdfdom_model");
+    println!("cargo:rustc-link-lib=dylib=urdfdom_world");
+    println!("cargo:rustc-link-lib=dylib=urdfdom_sensor");
+    println!("cargo:rustc-link-lib=dylib=cppad_lib");
+
+    println!("cargo:root={}", prefix.display());
 }
 
 /// Configures, builds, and installs a vendored CMake dependency into the shared `prefix`,
@@ -72,6 +129,15 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=patches");
+
+    let stamp_path = prefix.join(".build-stamp");
+    let fingerprint = build_fingerprint(&manifest_dir).to_string();
+    if std::fs::read_to_string(&stamp_path).ok().as_deref() == Some(fingerprint.as_str())
+        && prefix.join("lib/libcricket.a").exists()
+    {
+        emit_link_directives(&prefix);
+        return;
+    }
 
     build_dep(
         &manifest_dir,
@@ -255,26 +321,6 @@ fn main() {
         .env("PKG_CONFIG_PATH", &pkg_config_path)
         .build();
 
-    let lib_dir = prefix.join("lib");
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
-
-    // Static libs.
-    println!("cargo:rustc-link-lib=static=cricket");
-    println!("cargo:rustc-link-lib=static=fmt");
-    // Shared libs.
-    // Libraries depending on Boost hardcode a shared lib requirement, so we must require boost as a
-    // shared lib.
-    println!("cargo:rustc-link-lib=dylib=boost_filesystem");
-    println!("cargo:rustc-link-lib=dylib=boost_serialization");
-    println!("cargo:rustc-link-lib=dylib=pinocchio_default");
-    println!("cargo:rustc-link-lib=dylib=pinocchio_parsers");
-    println!("cargo:rustc-link-lib=dylib=pinocchio_collision");
-    println!("cargo:rustc-link-lib=dylib=coal");
-    println!("cargo:rustc-link-lib=dylib=urdfdom_model");
-    println!("cargo:rustc-link-lib=dylib=urdfdom_world");
-    println!("cargo:rustc-link-lib=dylib=urdfdom_sensor");
-    println!("cargo:rustc-link-lib=dylib=cppad_lib");
-
-    println!("cargo:root={}", prefix.display());
+    std::fs::write(&stamp_path, &fingerprint).unwrap();
+    emit_link_directives(&prefix);
 }

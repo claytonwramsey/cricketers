@@ -5,7 +5,8 @@ edition = "2024"
 links = "cricket"
 
 [dependencies]
+cxx = "1.0.198"
 
 [build-dependencies]
 cmake = "0.1"
-cc = "1"
+cxx-build = "1.0.198"

@@ -267,22 +267,47 @@ fn build_fingerprint(manifest_dir: &Path) -> u64 {
     hasher.finish()
 }
 
-/// Compiles the hand-written C shim (csrc/shim.cc) around cricket's C++ API. Must run before
-/// `emit_link_directives`: `cc::Build::compile` emits its own `cargo:rustc-link-lib` for the
-/// shim archive immediately, and it has to appear before `-lcricket` on the link line since the
-/// shim references cricket's symbols, not the other way around.
+/// Compiles the `cxx` bridge (src/ffi.rs) together with its hand-written C++ implementation
+/// (csrc/shim.{h,cc}) around cricket's C++ API. Must run before `emit_link_directives`:
+/// `cxx_build::bridge(..).compile` emits its own `cargo:rustc-link-lib` for the shim archive
+/// immediately, and it has to appear before `-lcricket` on the link line since the shim
+/// references cricket's symbols, not the other way around.
 fn compile_shim(manifest_dir: &Path, prefix: &Path) {
     let include = prefix.join("include");
-    cc::Build::new()
-        .cpp(true)
-        .std("c++17")
+    // Deliberately relative (cxx_build derives the generated header's install path,
+    // "cricket-sys/src/ffi.rs.h", from this path) -- build scripts always run with `manifest_dir`
+    // as their working directory, so this resolves the same as `manifest_dir.join("src/ffi.rs")`.
+    cxx_build::bridge("src/ffi.rs")
         .file(manifest_dir.join("csrc/shim.cc"))
+        .std("c++17")
+        .include(manifest_dir.join("csrc"))
         .include(&include)
         .include(include.join("eigen3"))
         .include(include.join("pinocchio/deprecated"))
         .include(include.join("urdfdom"))
         .include(include.join("urdfdom_headers"))
+        // Unlike the old shim, this one instantiates `std::unique_ptr<cricket::RobotInfo>`'s
+        // destructor (via `robot_info_new`), which pulls in the full definition of
+        // `pinocchio::Model` -- including its `boost::variant` of ~25 joint types, which
+        // overflows `boost::mpl::list`'s default 20-type limit. These match pinocchio's own
+        // `INTERFACE_COMPILE_DEFINITIONS` (see
+        // `prefix/lib/cmake/pinocchio/pinocchioTargets.cmake`); we have to repeat them by
+        // hand since we consume pinocchio via raw `-I` paths, not a CMake target, so
+        // nothing propagates these to us automatically.
+        .define("BOOST_MPL_LIMIT_LIST_SIZE", "30")
+        .define("BOOST_MPL_LIMIT_VECTOR_SIZE", "30")
+        .define("BOOST_MPL_CFG_NO_PREPROCESSED_HEADERS", None)
+        .define("BOOST_FUSION_INVOKE_MAX_ARITY", "12")
+        .define("PINOCCHIO_ENABLE_TEMPLATE_INSTANTIATION", None)
+        .define("PINOCCHIO_WITH_COLLISION", None)
+        .define("PINOCCHIO_WITH_HPP_FCL", None)
+        .define("PINOCCHIO_WITH_URDFDOM", None)
+        .define("PINOCCHIO_URDFDOM_HEADERS_MAJOR_VERSION", "3")
+        .define("PINOCCHIO_URDFDOM_HEADERS_MINOR_VERSION", "0")
+        .define("PINOCCHIO_URDFDOM_HEADERS_PATCH_VERSION", "0")
         .compile("cricket_shim");
+
+    println!("cargo:rerun-if-changed=src/ffi.rs");
 }
 
 fn emit_link_directives(prefix: &Path) {
